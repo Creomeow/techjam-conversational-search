@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from evaluator.local_evaluator import catalog_index, evaluate, metric_summary  # noqa: E402
 from starter.agent import Agent  # noqa: E402
 
-DEFAULT_BATCH_SIZE = 500
+DEFAULT_BATCH_SIZE = 100
 
 # Independent of target product — these just vary the (anonymized) buyer profile.
 _PROFILE_POOL: list[dict] = [
