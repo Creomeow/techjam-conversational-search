@@ -73,15 +73,28 @@ def _running_hit_rate(sessions: list[dict]) -> float:
     return sum(1 for s in sessions if s["hit"]) / len(sessions) if sessions else 0.0
 
 
+def _score_block(sessions: list[dict]) -> dict:
+    """metric_summary() plus Efficiency and TechnicalScore, per docs/competition_specification.md."""
+    summary = metric_summary(sessions)
+    mttc = summary["mttc"]
+    efficiency = 0.0 if mttc is None else max(0.0, min(1.0, (11.0 - float(mttc)) / 10.0))
+    technical_score = 0.50 * summary["hit_rate_at_10"] + 0.30 * summary["mrr"] + 0.20 * efficiency
+    return {
+        **summary,
+        "efficiency": round(efficiency, 6),
+        "recommended_technical_score": round(technical_score, 6),
+    }
+
+
 def _checkpoint(output_path: Path, sessions: list[dict], final: bool) -> None:
     grouped: dict[str, list[dict]] = {}
     for session in sessions:
         grouped.setdefault(session["scenario_type"], []).append(session)
-    overall = metric_summary(sessions)
+    overall = _score_block(sessions)
     payload = {
         "final": final,
         **overall,
-        "scenario_metrics": {name: metric_summary(rows) for name, rows in sorted(grouped.items())},
+        "scenario_metrics": {name: _score_block(rows) for name, rows in sorted(grouped.items())},
         "sessions": sessions,
     }
     output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
