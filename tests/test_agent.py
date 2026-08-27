@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from starter import clarify, nlu
+from starter.agent import Agent
+from starter.retrieval import RetrievalEngine
 from starter.state import SessionState
+
+
+CATALOG = Path(__file__).parent / "fixtures" / "tiny_catalog.jsonl"
 
 
 class NluTurnOneRoutingTest(unittest.TestCase):
@@ -140,6 +146,54 @@ class ConstraintVocabularySupersetTest(unittest.TestCase):
         self.assertEqual(nlu.classify_constraint("100% Textile"), "material")
         self.assertEqual(nlu.classify_constraint("teal"), "color")
         self.assertEqual(nlu.classify_constraint("denim"), "material")
+
+
+class RetrievalIntegrationTest(unittest.TestCase):
+    def test_constraint_reranking_places_exact_product_first(self) -> None:
+        engine = RetrievalEngine(CATALOG)
+        pool = engine.search(
+            "women shoes",
+            ["red", "trail running", "wide fit", "budget around $59"],
+            top_k=2,
+            candidate_limit=10,
+        )
+        self.assertEqual(pool[0][0], "RED_SHOE")
+        self.assertIn("title", pool[0][1])
+        self.assertIsInstance(pool[0][2], float)
+
+
+class AgentIntegrationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.agent = Agent(CATALOG)
+
+    def test_output_contract_and_multi_turn_ranking(self) -> None:
+        self.agent.reset("one", {"preference_tags": ["comfort"]})
+        first = self.agent.respond("one", "I'm looking for Women Shoes, but I'm still exploring.", 1, 10)
+        second = self.agent.respond(
+            "one", "For that, what matters is: red; trail running; wide fit.", 2, 10
+        )
+        self.assertEqual(first["ask_attribute"], "other")
+        self.assertEqual(second["recommendations"][0]["parent_asin"], "RED_SHOE")
+        self.assertIn("trail running", self.agent._sessions["one"].hard_terms.get("use_case", []))
+
+    def test_candidate_pool_contract_is_available_to_clarification(self) -> None:
+        self.agent.reset("pool", {})
+        self.agent.respond("pool", "I'm looking for Women Shoes, but I'm still exploring.", 1, 10)
+        pool = self.agent._sessions["pool"].last_candidate_pool
+        self.assertTrue(pool)
+        self.assertEqual(len(pool[0]), 3)
+        self.assertIsInstance(pool[0][1], dict)
+
+    def test_sessions_do_not_contaminate_each_other(self) -> None:
+        self.agent.reset("red", {})
+        self.agent.reset("hat", {})
+        self.agent.respond("red", "I'm looking for Women Shoes. red", 1, 10)
+        self.agent.respond("hat", "I'm looking for Accessories Hats. black wool", 1, 10)
+        self.assertNotEqual(
+            self.agent._sessions["red"].hard_terms,
+            self.agent._sessions["hat"].hard_terms,
+        )
 
 
 if __name__ == "__main__":

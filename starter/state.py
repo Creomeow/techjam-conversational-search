@@ -30,6 +30,9 @@ class SessionState:
 
     last_ask_attribute: str | None = None
     last_candidates: list[str] = field(default_factory=list)
+    # Retrieval-to-clarification integration contract: (parent_asin, product fields, score).
+    last_candidate_pool: list[tuple[str, dict, float]] = field(default_factory=list)
+    last_query_signature: tuple[str, tuple[str, ...], tuple[str, ...]] | None = None
 
     def add_term(self, attribute: str, token: str, weight: float = 1.0) -> None:
         key = (attribute, token)
