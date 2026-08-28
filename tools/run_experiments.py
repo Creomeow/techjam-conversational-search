@@ -3,13 +3,25 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-def run(command: list[str]) -> None:
+def run(command: list[str], label: str) -> None:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, check=True)
+    started = time.monotonic()
+    process = subprocess.Popen(command)
+    next_heartbeat = started + 30.0
+    while process.poll() is None:
+        now = time.monotonic()
+        if now >= next_heartbeat:
+            print(f"[{label}] still running ({now - started:.0f}s elapsed)", flush=True)
+            next_heartbeat = now + 30.0
+        time.sleep(1.0)
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, command)
+    print(f"[{label}] completed in {time.monotonic() - started:.1f}s", flush=True)
 
 
 def main() -> None:
@@ -36,19 +48,19 @@ def main() -> None:
         "--output", str(synthetic),
         "--count", str(args.synthetic_count),
         "--seed", str(args.seed),
-    ])
+    ], "generate synthetic")
     run([
         python, "-m", "evaluator.local_evaluator",
         "--catalog", args.catalog,
         "--dataset", args.public,
         "--output", str(public_result),
-    ])
+    ], "public evaluation")
     run([
         python, "-m", "evaluator.local_evaluator",
         "--catalog", args.catalog,
         "--dataset", str(synthetic),
         "--output", str(synthetic_result),
-    ])
+    ], "synthetic evaluation")
     print(f"\nCompleted run: {run_dir}")
     print(f"Public result: {public_result}")
     print(f"Synthetic result: {synthetic_result}")
