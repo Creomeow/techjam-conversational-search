@@ -10,13 +10,15 @@ from starter.state import SessionState
 class Agent:
     """Stateful offline shopping agent using NLU, clarification, and tiered retrieval."""
 
-    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
+    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl", clarification_policy: str = "other_first") -> None:
         self.catalog_path = Path(catalog_path)
         self.retrieval = RetrievalEngine(self.catalog_path)
+        self.clarification_policy = clarification_policy
         self._sessions: dict[str, SessionState] = {}
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         state = SessionState()
+        state.clarification_policy = self.clarification_policy
         nlu.seed_profile_preferences(state, user_profile)
         self._sessions[session_id] = state
 
@@ -25,7 +27,7 @@ class Agent:
         if state is None:
             raise RuntimeError("reset must be called before respond")
 
-        intent_changed = bool(nlu.OVERRIDE_MARKERS_RE.search(user_message))
+        intent_changed = nlu.detect_override(state, user_message)
         nlu.apply_customer_message(state, user_message, turn)
 
         category = " ".join(state.category_tokens)

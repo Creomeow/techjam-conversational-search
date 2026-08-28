@@ -9,6 +9,9 @@ class SessionState:
 
     turn_count: int = 0
     mode: str | None = None  # "buying" or "browsing", set at turn 1
+    # Clarification strategy is an A/B knob.  Keep the simulator-validated v1
+    # behavior as the default; the adaptive policy is opt-in for experiments.
+    clarification_policy: str = "other_first"
 
     category_tokens: list[str] = field(default_factory=list)
 

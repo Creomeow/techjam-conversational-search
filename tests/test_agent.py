@@ -120,6 +120,14 @@ class DisclosureAccumulationTest(unittest.TestCase):
 
 
 class OverrideReplacesNotAppendsTest(unittest.TestCase):
+    def test_repeated_override_value_is_a_noop(self) -> None:
+        state = SessionState()
+        nlu.apply_customer_message(state, "I'm looking for women's sneakers. leather.", 1)
+        before = {key: values[:] for key, values in state.hard_terms.items()}
+        self.assertFalse(nlu.detect_override(state, "Actually, what I need is: leather."))
+        nlu.apply_customer_message(state, "Actually, what I need is: leather.", 3)
+        self.assertEqual(state.hard_terms, before)
+
     def test_override_replaces_only_targeted_attribute(self) -> None:
         state = SessionState()
         nlu.apply_customer_message(state, "I'm looking for women's sneakers. black.", 1)
@@ -146,6 +154,28 @@ class ConstraintVocabularySupersetTest(unittest.TestCase):
         self.assertEqual(nlu.classify_constraint("100% Textile"), "material")
         self.assertEqual(nlu.classify_constraint("teal"), "color")
         self.assertEqual(nlu.classify_constraint("denim"), "material")
+
+
+class AdaptiveClarificationPolicyTest(unittest.TestCase):
+    def test_selects_attribute_with_highest_candidate_impurity(self) -> None:
+        state = SessionState(clarification_policy="adaptive")
+        state.last_candidate_pool = [
+            ("1", {"title": "black wool hat", "price": 20}, 1.0),
+            ("2", {"title": "blue wool shirt", "price": 40}, 0.9),
+            ("3", {"title": "red wool jacket", "price": 60}, 0.8),
+        ]
+        attribute, _ = clarify.choose_ask_attribute(state)
+        self.assertEqual(attribute, "color")
+
+    def test_adaptive_policy_skips_disclosed_attribute(self) -> None:
+        state = SessionState(clarification_policy="adaptive")
+        state.hard_terms["color"] = ["black"]
+        state.last_candidate_pool = [
+            ("1", {"title": "black wool hat", "price": 20}, 1.0),
+            ("2", {"title": "blue wool shirt", "price": 40}, 0.9),
+        ]
+        attribute, _ = clarify.choose_ask_attribute(state)
+        self.assertNotEqual(attribute, "color")
 
 
 class RetrievalIntegrationTest(unittest.TestCase):

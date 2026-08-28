@@ -205,10 +205,40 @@ def _apply_override(state: SessionState, message: str) -> None:
             state.clear_attribute_terms(target_attr)
         return
     attribute = classify_constraint(new_value)
+    # Some simulator turns repeat a value that was already disclosed through
+    # an earlier "other" answer.  Treat that as informationally empty: an
+    # override should replace a real preference, not clear and reinsert it.
+    normalized = re.sub(r"\s+", " ", new_value).strip(" .,;:").lower()
+    existing = {
+        re.sub(r"\s+", " ", value).strip(" .,;:").lower()
+        for value in state.hard_terms.get(attribute, [])
+    }
+    if normalized in existing:
+        return
     state.clear_attribute_terms(attribute)
     _record_constraint(state, attribute, new_value)
     state.exhausted_attributes.discard(attribute)
     state.no_preference_attributes.discard(attribute)
+
+
+def detect_override(state: SessionState, message: str) -> bool:
+    """Return whether *message* changes an existing constraint.
+
+    Marker-only overrides still count (they may clear the most recent
+    attribute), while a repeated isolated value is a no-op.  Keeping this
+    decision in NLU lets the agent avoid an unnecessary retrieval reset too.
+    """
+    if not OVERRIDE_MARKERS_RE.search(message):
+        return False
+    new_value = _isolate_override_value(message)
+    if not new_value:
+        return True
+    attribute = classify_constraint(new_value)
+    normalized = re.sub(r"\s+", " ", new_value).strip(" .,;:").lower()
+    return normalized not in {
+        re.sub(r"\s+", " ", value).strip(" .,;:").lower()
+        for value in state.hard_terms.get(attribute, [])
+    }
 
 
 def apply_customer_message(state: SessionState, message: str, turn: int) -> None:
