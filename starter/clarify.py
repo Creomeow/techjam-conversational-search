@@ -14,13 +14,22 @@ _OTHER_PROMPTS = [
     "Is there anything more you'd like me to consider?",
 ]
 
-_EXHAUSTED_MESSAGE = "Got it — let me pull together the best options based on everything you've shared."
+# Rotates as `agent.py` pages deeper into the cached candidate pool on repeated exhausted
+# turns (state.pool_offset advances by top_k each such turn) — keeps the transcript from
+# reading as a stuck loop while the same underlying pool is being paged through.
+_EXHAUSTED_MESSAGES = [
+    "Got it — let me pull together the best options based on everything you've shared.",
+    "Here are some other options that might be a better fit.",
+    "Let me show you a few more alternatives.",
+    "Here's another set of options worth considering.",
+]
 
 
 def choose_ask_attribute(state: SessionState) -> tuple[str | None, str]:
     if state.card_exhausted:
         state.last_ask_attribute = None
-        return None, _EXHAUSTED_MESSAGE
+        index = min(state.pool_offset // 10, len(_EXHAUSTED_MESSAGES) - 1)
+        return None, _EXHAUSTED_MESSAGES[index]
     prompt = _OTHER_PROMPTS[state.turn_count % len(_OTHER_PROMPTS)]
     state.asked_attributes.add("other")
     state.last_ask_attribute = "other"

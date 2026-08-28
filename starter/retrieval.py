@@ -62,6 +62,8 @@ class RetrievalEngine:
     def __init__(self, catalog_path: str | Path) -> None:
         self.catalog_path = Path(catalog_path)
         self.connection = sqlite3.connect(":memory:")
+        self._df_cache: dict[str, int] = {}
+        self._total_products = 0
         self._build_index()
 
     def _build_index(self) -> None:
@@ -94,6 +96,37 @@ class RetrievalEngine:
         if batch:
             cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", batch)
         self.connection.commit()
+        self._total_products = self.connection.execute("SELECT count(*) FROM products").fetchone()[0]
+
+    def _document_frequency(self, term: str) -> int:
+        """How many catalog rows contain `term` anywhere — cheap corpus-wide rarity signal."""
+        cached = self._df_cache.get(term)
+        if cached is not None:
+            return cached
+        try:
+            row = self.connection.execute(
+                "SELECT count(*) FROM products WHERE products MATCH ?", (_fts_token(term),)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        value = row[0] if row else 0
+        self._df_cache[term] = value
+        return value
+
+    def _rarity_weight(self, term: str) -> float:
+        """Document-frequency-ratio multiplier: common-but-still-correct terms (e.g. "cotton"
+        at ~20% of catalog) keep most of their weight; only terms spanning a large fraction of
+        the catalog (e.g. "closure" at ~39%) get meaningfully discounted, and genuinely rare
+        terms get a modest boost. (A log-IDF-against-theoretical-max version was tried first but
+        compressed nearly all real catalog terms into a narrow low range, over-penalizing common
+        materials that are still the correct disclosed signal for that session.)"""
+        if self._total_products <= 0:
+            return 1.0
+        doc_freq = self._document_frequency(term)
+        if doc_freq == 0:
+            return 1.15
+        ratio = doc_freq / self._total_products
+        return min(1.15, max(0.6, 1.0 - ratio))
 
     def _query(self, expression: str, limit: int) -> list[tuple]:
         if not expression:
@@ -206,14 +239,22 @@ class RetrievalEngine:
             score += 2.8 * len(current_tokens & title_tokens) / max(1, len(current_tokens))
             score += 1.8 * len(current_tokens & category_tokens) / max(1, len(current_tokens))
             for (raw, _), token_set in zip(constraint_pairs, constraint_token_sets):
-                coverage = len(token_set & (title_tokens | category_tokens | feature_tokens)) / max(1, len(token_set))
-                score += 4.0 * coverage
+                matched = token_set & (title_tokens | category_tokens | feature_tokens)
+                weighted_coverage = (
+                    sum(self._rarity_weight(t) for t in matched) / max(1, len(token_set))
+                    if token_set else 0.0
+                )
+                score += 4.0 * weighted_coverage
                 normalized = " ".join(terms(raw, 24))
                 if normalized and normalized in " ".join(terms(searchable, 500)):
                     score += 1.5
             for token_set in soft_token_sets:
-                coverage = len(token_set & (title_tokens | category_tokens | feature_tokens)) / max(1, len(token_set))
-                score += 0.40 * coverage
+                matched = token_set & (title_tokens | category_tokens | feature_tokens)
+                weighted_coverage = (
+                    sum(self._rarity_weight(t) for t in matched) / max(1, len(token_set))
+                    if token_set else 0.0
+                )
+                score += 0.40 * weighted_coverage
             if requested_budget is not None and product["price"] is not None:
                 delta = abs(float(product["price"]) - requested_budget) / max(10.0, requested_budget)
                 score += 2.0 * math.exp(-2.5 * delta)

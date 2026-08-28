@@ -55,7 +55,6 @@ class Agent:
             state.last_query_signature = signature
             state.last_candidate_pool = pool
 
-        state.last_candidates = [parent_asin for parent_asin, _, _ in pool[:top_k]]
         if turn >= 10:
             ask_attribute = None
             message = "These are the closest matches for your requirements."
@@ -63,12 +62,28 @@ class Agent:
         else:
             ask_attribute, message = clarify.choose_ask_attribute(state)
 
+        if ask_attribute is None:
+            # Nothing new to learn from the customer — page deeper into the already-fetched
+            # pool instead of repeating the same top-10 every remaining turn. A hit is scored
+            # by its position within *this turn's* submission, not true global rank, so this
+            # can turn a candidate stuck at, say, rank 35 into a real hit a few turns later.
+            window = pool[state.pool_offset : state.pool_offset + top_k]
+            if not window and state.pool_offset > 0:
+                state.pool_offset = 0
+                window = pool[:top_k]
+            state.pool_offset += top_k
+        else:
+            state.pool_offset = 0
+            window = pool[:top_k]
+
+        state.last_candidates = [parent_asin for parent_asin, _, _ in window]
+
         return {
             "message": message,
             "ask_attribute": ask_attribute,
             "recommendations": [
                 {"parent_asin": parent_asin}
-                for parent_asin, _, _ in pool[:top_k]
+                for parent_asin, _, _ in window
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }

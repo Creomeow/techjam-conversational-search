@@ -33,6 +33,11 @@ class SessionState:
     # Retrieval-to-clarification integration contract: (parent_asin, product fields, score).
     last_candidate_pool: list[tuple[str, dict, float]] = field(default_factory=list)
     last_query_signature: tuple[str, tuple[str, ...], tuple[str, ...]] | None = None
+    # Once the card is exhausted (ask_attribute=None), page deeper into the cached pool each
+    # turn instead of repeating the same top-10 — a hit is scored by its position within
+    # whatever's submitted that turn, not by true global rank, so paging can convert a
+    # rank-35 candidate into a real hit a few turns later instead of a guaranteed miss.
+    pool_offset: int = 0
 
     def add_term(self, attribute: str, token: str, weight: float = 1.0) -> None:
         key = (attribute, token)
