@@ -215,6 +215,27 @@ class AgentIntegrationTest(unittest.TestCase):
         self.assertEqual(len(pool[0]), 3)
         self.assertIsInstance(pool[0][1], dict)
 
+    def test_reused_pool_advances_without_repeating_first_window(self) -> None:
+        self.agent.reset("paging", {})
+        first = self.agent.respond(
+            "paging", "I'm looking for Women Shoes, but I'm still exploring.", 1, 1
+        )
+        second = self.agent.respond(
+            "paging", "I don't have an additional preference for other.", 2, 1
+        )
+        self.assertNotEqual(first["recommendations"], second["recommendations"])
+
+    def test_repeated_override_keeps_top_window_score_eligible(self) -> None:
+        self.agent.reset("override-window", {})
+        self.agent.respond("override-window", "I'm looking for Women Shoes. red.", 1, 1)
+        before_override = self.agent.respond(
+            "override-window", "For that, what matters is: wide fit.", 2, 1
+        )
+        after_override = self.agent.respond(
+            "override-window", "Actually, what I need is: wide fit.", 3, 1
+        )
+        self.assertEqual(before_override["recommendations"], after_override["recommendations"])
+
     def test_sessions_do_not_contaminate_each_other(self) -> None:
         self.agent.reset("red", {})
         self.agent.reset("hat", {})

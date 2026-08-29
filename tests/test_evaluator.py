@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 import json
-import tempfile
+from contextlib import nullcontext
 
 from evaluator.local_evaluator import catalog_index, evaluate, metric_summary, normalize_recommendations
 
@@ -40,9 +40,12 @@ class EvaluatorTest(unittest.TestCase):
         })
 
     def test_evaluate_derives_hidden_fields_when_public_set_omits_them(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        temporary_root = Path(__file__).resolve().parents[1] / ".tmp-tests"
+        temporary_root.mkdir(exist_ok=True)
+        with nullcontext(temporary_root) as directory:
             root = Path(directory)
-            catalog_path = root / "catalog.jsonl"
+            catalog_path = root / "test_evaluator_catalog.jsonl"
+            self.addCleanup(catalog_path.unlink, missing_ok=True)
             catalog_rows = [
                 {
                     "parent_asin": "A",

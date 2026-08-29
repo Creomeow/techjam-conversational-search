@@ -42,7 +42,12 @@ class Agent:
             for value in values
         ]
         signature = (category, tuple(hard_constraints), tuple(soft_preferences))
-        if signature == state.last_query_signature and state.last_candidate_pool and not intent_changed:
+        pool_reused = (
+            signature == state.last_query_signature
+            and bool(state.last_candidate_pool)
+            and not intent_changed
+        )
+        if pool_reused:
             pool = state.last_candidate_pool
         else:
             pool = self.retrieval.search(
@@ -56,6 +61,7 @@ class Agent:
             )
             state.last_query_signature = signature
             state.last_candidate_pool = pool
+            state.pool_offset = 0
 
         if turn >= 10:
             ask_attribute = None
@@ -64,19 +70,17 @@ class Agent:
         else:
             ask_attribute, message = clarify.choose_ask_attribute(state)
 
-        if ask_attribute is None:
-            # Nothing new to learn from the customer — page deeper into the already-fetched
-            # pool instead of repeating the same top-10 every remaining turn. A hit is scored
-            # by its position within *this turn's* submission, not true global rank, so this
-            # can turn a candidate stuck at, say, rank 35 into a real hit a few turns later.
-            window = pool[state.pool_offset : state.pool_offset + top_k]
-            if not window and state.pool_offset > 0:
-                state.pool_offset = 0
-                window = pool[:top_k]
-            state.pool_offset += top_k
-        else:
+        # A fresh query starts at the top. While clarification is still active, keep a reused
+        # pool at the top as well: Intent Override can make those candidates score-eligible
+        # without changing the query signature. Once clarification ends, continue from the
+        # next unseen window instead of repeating ranks 1-10 at the exhaustion transition.
+        if ask_attribute is not None and pool_reused:
+            state.pool_offset = 0
+        window = pool[state.pool_offset : state.pool_offset + top_k]
+        if not window and state.pool_offset > 0:
             state.pool_offset = 0
             window = pool[:top_k]
+        state.pool_offset += top_k
 
         state.last_candidates = [parent_asin for parent_asin, _, _ in window]
 
