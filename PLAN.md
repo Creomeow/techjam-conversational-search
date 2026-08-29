@@ -15,18 +15,18 @@ The original 4-day plan (tonight=v1 + brute-force permutation search overnight, 
 
 It also under-scopes Monday: `docs/submission_rules.md` and the "Final Deliverables" in `docs/competition_specification.md` require a written report and one demonstrated multi-turn session transcript, not just code.
 
-**Clarification-policy note (added after further review)**: v1's default is to ask `ask_attribute="other"` first and repeatedly, since the simulator's `customer_reply()` reveals undisclosed constraints regardless of classification when asked `"other"` — a strong, simple way to front-load information extraction. This is a deliberate, documented exploit of a specific simulator implementation detail, not a generally "smart" clarification behavior — the report should be explicit about this choice, and v2's adaptive attribute-specific policy (Fri/Sat) is both a genuine A/B comparison and a hedge in case the private evaluator's simulator differs slightly, plus it's the piece that actually demonstrates the "adaptive clarification" innovation direction from `docs/competition_specification.md` to judges.
+**Clarification-policy note (added after further review)**: `other_first` remains the default because the simulator's `customer_reply()` reveals undisclosed constraints regardless of classification when asked `"other"` — a strong, simple way to front-load information extraction. This is a deliberate, documented exploit of a specific simulator implementation detail, not a generally "smart" clarification behavior. The implemented `adaptive` policy remains an A/B variant and a hedge in case the private evaluator's simulator differs slightly; switch the default only after scale validation.
 
-## Status: v1 done and scale-validated
+## Status: v2 implemented; validation is the remaining gate
 
-v1 is built, wired, tested (17/17 unit tests passing), and validated at scale overnight. Results:
+The pagination fix, rarity weighting, override no-op handling, and adaptive clarification policy are implemented. The latest public run is strong, but the latest code has not yet been validated across all four scenario types at large scale. Results currently available:
 
-- **Public 200-session run**: HR@10 0.93, MRR 0.625, MTTC 2.86, Efficiency 0.814, TechnicalScore **0.815** — vs. baseline's 0.125/0.068/9.81/0.119/0.107.
-- **Overnight synthetic runs** (`results_buying_override.json`, `results_browsing_boundary_10k.json` — 10,000 sessions per scenario type, 40,000 total, via `scripts/eval_buying_override.py` / `scripts/eval_browsing_boundary.py`): mix-weighted (40/40/15/5) composite **HR@10 0.911, MRR 0.633, MTTC 2.99, Efficiency 0.801, TechnicalScore 0.806** — closely matches the 200-session estimate, confirming v1 isn't overfit to the small public set.
-- **One correction from the small-sample estimate**: Boundary looked perfect at n=10 (HR@10 1.0, MRR 0.917) but settles at HR@10 0.924 / MRR 0.638 at n=10,000 — essentially identical to Browsing, as expected (Boundary converges to the same outcome as Browsing, just delayed by the one wasted refusal turn). Treat **0.806**, not 0.815, as the number to beat going forward.
-- **Buying has the lowest MRR of the four scenarios at scale (0.619)**, confirmed not noise (200-sample: 0.577; 10K-sample: 0.619 — same ranking either way). Root cause identified via manual transcript inspection (see Diagnostic Findings below): Buying's turn-1 head start causes early-but-mediocre-rank hits.
+- **Latest public 200-session run** (`results.json`): HR@10 **0.995**, MRR **0.664**, MTTC **2.465**, Efficiency **0.854**, TechnicalScore **0.867**. Scenario HR@10/MRR: Buying 0.988/0.616, Browsing 1.000/0.631, Intent Override 1.000/0.799, Boundary 1.000/0.920.
+- **Latest browsing/boundary scale run** (`results_browsing_boundary_v2.json`): 30,000 sessions total, HR@10 **0.975**, MRR **0.653**, MTTC **3.034**, TechnicalScore **0.843**. This confirms the public result generalizes reasonably, but it is not a complete replacement for the previous four-scenario scale baseline.
+- **Previous full scale baseline**: the 40,000-session v1 mix-weighted run was HR@10 0.911, MRR 0.633, MTTC 2.99, TechnicalScore **0.806**. Keep 0.806 as the conservative comparison point until the latest Buying/Intent Override run is complete.
+- **Remaining quality gap**: Buying still has the lowest MRR in the latest public run (0.616). Continue targeting rank quality and early low-rank hits there before spending time on broad clarification-policy changes.
 
-### Diagnostic findings from manual transcript review (`print_transcripts.py` re-run against live v1)
+### Diagnostic findings from manual transcript review (`print_transcripts.py` re-run against the live agent)
 
 - **Term-discriminativeness gap**: an Intent Override session hit at rank 10 (barely inside the window) after accumulating "leather", "Imported", "Buckle closure" — the latter two are generic manufacturing boilerplate shared by many belt listings, not discriminating signal, but `retrieval.py` currently weights them the same as a rare, distinctive term. This likely also explains Buying's low MRR (turn-1's disclosed "hard constraint" is sometimes a messy, near-title-length phrase rather than a clean attribute value — see the Wicca-pendant example in the intent-card dump earlier this session).
 - **Override-value-leak edge case, observed live**: in that same session, the scripted override at turn 3 ("ignore my earlier preference, what I need is: leather") repeated a value already disclosed one turn earlier via a normal `"other"` answer — informationally a no-op turn. Not harmful by itself, but confirms the theoretical leak case flagged earlier is real and worth a short-circuit check in `detect_override`.
@@ -48,7 +48,7 @@ Implemented the Fri/Sat priority: `RetrievalEngine._rarity_weight(term)` discoun
 
 **Retuned to a linear document-frequency-ratio discount** (`min(1.15, max(0.6, 1.0 - doc_freq/total))` — see `starter/retrieval.py`'s `_rarity_weight`): now a genuine net improvement over pagination alone — **MRR 0.651→0.654, TechnicalScore 0.859→0.860**, with the clearest win in Intent Override (MRR 0.681→0.728, the scenario the original diagnosis came from) and Boundary (0.917→0.920). Browsing dipped slightly (0.644→0.631) but not enough to erase the net gain.
 
-**Not yet re-validated at the 10K-per-scenario scale** for either the pagination or rarity-weighting fixes — do this before trusting the magnitude, since Boundary's small-sample estimate was previously overstated by a similar margin in the other direction, and note the per-term rarity lookups add real query overhead (cached after first use, but worth checking against the "operational constraints" webinar question about judging timeouts). Re-run `scripts/eval_buying_override.py` and `scripts/eval_browsing_boundary.py` before Fri/Sat planning locks in a new baseline number.
+The browsing/boundary portion has since been re-run at 30,000 sessions (`results_browsing_boundary_v2.json`), but the latest Buying/Intent Override code path still needs a matching large-scale run. The per-term rarity lookups are cached after first use; measure cold-start and warm-run latency before treating the public score improvement as submission-ready.
 
 ## Day-by-Day Plan
 
@@ -68,31 +68,39 @@ Built `scripts/synthetic_common.py` (shared batching/checkpoint/ETA harness, reu
 
 Did **not** run a permutation search — confirmed unnecessary given v1's results.
 
-### Fri/Sat (v2) — target the diagnosed gaps, not speculative tuning
+### Fri/Sat (v2 closeout) — validate the implementation, then target Buying
 
-Priorities reordered based on the overnight diagnostics, highest-value first:
+The implementation work is largely complete. Make validation and reproducibility the next deliverable, with ranking experiments gated by evidence:
 
-- **Both, first thing**: build a miss/low-rank finder — pull `sample_id`s from `results_buying_override.json` / `results_browsing_boundary_10k.json` where `hit=false` or `best_rank>5`, then replay those specific sessions through the `print_transcripts.py`-style tool (parameterized by `sample_id` instead of "first found per scenario") to see exactly what's going wrong, rather than guessing from aggregates alone.
-- **Person B**: add **term-rarity (IDF-style) weighting** to `retrieval.py`'s rescoring — down-weight matches on terms that appear across a large fraction of the catalog (e.g. "Imported", "Buckle closure") relative to rare, distinctive terms (specific colors, materials, use-cases). Directly targets the rank-10 Intent Override hit and is the leading hypothesis for Buying's comparatively low MRR (0.619) — Buying's turn-1 disclosed "hard constraint" is sometimes a messy, near-title-length phrase rather than a clean attribute value, and current scoring likely can't tell signal from boilerplate within it.
+- **First**: run a smoke test (`--limit 20`) for both synthetic scripts, then run `scripts/eval_buying_override.py` and `scripts/eval_browsing_boundary.py` at the planned scale using the current code. Record the exact command, commit, runtime, and output filename in the report.
+- **Both**: use a miss/low-rank finder for `hit=false` or `best_rank>5`, prioritizing Buying and Intent Override. Replay selected sessions and classify each failure as extraction, candidate recall, ranking, pagination, or clarification waste.
+- **Person A status**: the override no-op and adaptive-policy implementation are complete. Keep `other_first` as the default because it is currently the strongest public policy; retain `adaptive` as a documented A/B variant and switch defaults only if it wins on both public metrics and the fresh scale run.
+- The next line is retained as implementation rationale and test history; it is no longer an outstanding task.
 - **Person A**: short-circuit `detect_override` when the isolated new value is already present in `state.hard_terms` for its classified attribute (the observed leak case — override fires on a value already disclosed a turn earlier via a normal `"other"` answer) — should be a no-op turn instead of a redundant clear-and-reinsert. Then build the **adaptive attribute-specific policy as an A/B variant** against v1's "other"-first default (still valuable for the "adaptive clarification" innovation-direction credit per the Context section note, now secondary to the retrieval fix above since "other"-first is already performing well). Write the NLU-side unit tests in `tests/test_agent.py` for both the override short-circuit and the info-gain heuristic, using phrasings deliberately different from the simulator's literal strings.
-- Validate every change against **both** the 200-session public set and a fresh `--limit 3000`-ish rerun of the two overnight scripts (not just the public set) — the overnight run is now the more trustworthy signal per the Status section, so treat it as the primary check, public-200 as the fast sanity check.
-- Overnight Fri→Sat: full-scale rerun (`--limit 10000` or higher) of both scripts with the day's changes — only keep changes that improve `scenario_metrics` at scale, specifically Buying's MRR and Intent Override's rank distribution.
+- **Person B**: only pursue another retrieval change if replay identifies a concrete failure mode. The first candidate is Buying-focused score calibration or long-phrase cleanup; do not widen the global rarity heuristic without an ablation showing a gain in Buying MRR and no material Browsing loss.
+- **Both**: benchmark cold-start index construction, first-query latency, warm-query latency, and total evaluator runtime. The submission must satisfy operational constraints, not only maximize offline score.
+- **Decision gate**: keep a change only if it preserves HR@10 and TechnicalScore on the public set, improves the targeted scenario at scale, and avoids a meaningful latency or contract regression. Preserve the current best version so experiments remain reversible.
 
-### Sun (v3) — confidence gating experiment, targeted at Buying specifically
+### Sun (v3, optional) — confidence gating only if validation justifies it
 
-**Person B** implements score-gap-based gating on `recommendations` in `retrieval.py` (only submit candidates clearing a confidence margin — locking in an early low-rank hit forecloses a possibly-better later rank, but blanket withholding delays already-good hits for nothing) as a togglable variant. This is no longer speculative: the overnight data shows Buying specifically hitting earliest (avg. turn ~2.3) but at the worst average rank of the four scenarios, the exact tradeoff this experiment targets — so gate primarily on Buying's turn-1/turn-2 submissions first, then check it doesn't regress the other three. **Person A** builds the A/B comparison harness and checks that gating doesn't break `clarify.py`'s candidate-pool-based heuristic (fewer live candidates changes the impurity calculation clarify relies on — this is the main integration risk to watch). Both review the A/B results together against the public 200 *and* a full-scale overnight-script rerun; only adopt gating if it consistently improves the composite `TechnicalScore` (baseline to beat: **0.806**, the scale-validated number, not the original 0.815 public-only estimate) on both — this is explicitly an empirical question, not one to assume the answer to.
+Before starting v3, complete the latest four-scenario scale run. If Buying's problem is ranking rather than candidate recall, run a small, togglable gating A/B test; otherwise skip it and spend the time on the diagnosed failure mode. This experiment is a fallback, not a required milestone.
 
-### Mon (buffer) — bug fixes + the non-code deliverables
+**Person B** implements score-gap-based gating on `recommendations` in `retrieval.py` only if replay shows early low-rank submissions are the dominant Buying failure. Test Buying turn-1/turn-2 gating first, then check all other scenarios. **Person A** verifies that gating does not break the candidate-pool heuristic in `clarify.py`. Adopt it only if it improves the fresh scale result and does not regress public HR@10, MRR, or operational latency; otherwise keep the current implementation.
 
-- Morning: both do a final bug bash together on whatever v3 surfaced; full-suite sanity run (`python3 -m unittest discover -s tests` + `python3 -m evaluator.local_evaluator`).
+### Mon (buffer) — freeze, package, and submit
+
+- Morning: freeze the best-scoring validated version, do a final bug bash, and run the full suite plus `python3 -m evaluator.local_evaluator`. The current suite has 23/24 tests passing; one evaluator fixture fails because the host's default Windows temp directory is not writable, so make the test run from a writable temp location or fix that fixture before calling the gate green.
 - **Person A**: write the required report (method, model choice — note: no LLM/network dependency if kept stdlib-only, matching `README.md:37`'s constraint and `docs/submission_rules.md`'s network-disclosure requirement — cost/latency, limitations).
 - **Person B**: capture one demonstrated multi-turn session transcript (reuse the transcript-printer approach from earlier in this session, adapted to the final agent) — required per `docs/competition_specification.md` "Final Deliverables" — and package per the layout in `docs/submission_rules.md` (`agent.py`, `requirements.txt`, `README.md`, `src/`).
 - Both review each other's deliverable before submitting.
 
 ## Testing/Validation Additions
 
-- New `tests/test_agent.py` (mirroring the fixture pattern in `tests/test_evaluator.py:42-72`): session-isolation regression test (two interleaved `session_id`s, assert no cross-contamination), override-replaces-not-appends test, and constraint-parsing tests using phrasings that deliberately differ from the simulator's literal strings (e.g. "you decide", "scratch that, go with X instead") to catch overfitting to `evaluator/local_evaluator.py`'s exact templates.
-- Track `scenario_metrics` (buying/browsing/intent_override/boundary breakdown) after every change, not just the aggregate — Browsing and Boundary are where the biggest early gains should show up; Intent Override is the most novel logic and worth watching for regressions.
+- The core `tests/test_agent.py` coverage now exists: session isolation, override replacement/no-op behavior, adaptive clarification, candidate-pool integration, and constraint parsing with phrasing that differs from the simulator's literal templates.
+- Close the test gate by resolving the Windows temp-directory failure in `tests/test_evaluator.py`; it is an environment/fixture issue, but it currently prevents a clean full-suite result.
+- Add a lightweight latency regression check around index construction and one cold plus several warm `respond()` calls. Keep it separate from the score artifacts so performance regressions are visible.
+- Track `scenario_metrics` (buying/browsing/intent_override/boundary breakdown) after every change, not just the aggregate. Also record runtime and cold/warm latency — a higher offline score is not sufficient if the implementation violates judging-time constraints.
+- Keep a small experiment ledger: version/commit, policy, changed variable, public metrics, scale metrics, runtime, and keep/reject decision. This prevents stale JSON artifacts from being mistaken for the current baseline.
 
 ## Critical Files
 - `starter/agent.py` — entry point, must keep exporting `Agent`
