@@ -1,4 +1,4 @@
-"""Verbose single-session trace for debugging clarification-policy differences."""
+"""Verbose single-session trace for debugging agent3's other_first clarification flow."""
 from __future__ import annotations
 
 import argparse
@@ -18,11 +18,11 @@ from evaluator.local_evaluator import (
 from starter.agent import Agent
 
 
-def trace(sample_id: str, policy: str, catalog: str, dataset: str) -> None:
+def trace(sample_id: str, catalog: str, dataset: str) -> None:
     samples = load_jsonl(dataset)
     sample = next(item for item in samples if item["sample_id"] == sample_id)
     catalog_ids, categories, products = catalog_index(catalog)
-    agent = Agent(catalog, clarification_policy=policy)
+    agent = Agent(catalog)
     session_id = f"trace_{uuid.uuid4().hex}"
     agent.reset(session_id, sample["user_profile"])
     target = str(sample["ground_truth"]["parent_asin"])
@@ -67,8 +67,7 @@ def trace(sample_id: str, policy: str, catalog: str, dataset: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("sample_id")
-    parser.add_argument("--policy", default="adaptive", choices=["adaptive", "other_first"])
     parser.add_argument("--catalog", default="data/catalog.jsonl")
     parser.add_argument("--dataset", default="data/public_set.jsonl")
     args = parser.parse_args()
-    trace(args.sample_id, args.policy, args.catalog, args.dataset)
+    trace(args.sample_id, args.catalog, args.dataset)

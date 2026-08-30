@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from shopping.conversation import QUESTION_TEXT, SessionState
+from shopping.conversation import SessionState
 from shopping.ranker import FIELD_SIGNAL_PROFILES, FieldSignalRanker, LinearRanker, PlaceholderSignalRanker
 from shopping.retrieval import CatalogIndex
 from shopping.retrieval import RetrievalHit
@@ -78,11 +78,7 @@ class Agent:
         neural_shadow_path: str | Path | None = None,
         allow_unpromoted_neural: bool = False,
         semantic_blend_weight: float | None = 1.5,
-        clarification_policy: str = "adaptive",
     ) -> None:
-        if clarification_policy not in {"adaptive", "other_first"}:
-            raise ValueError(f"unknown clarification policy: {clarification_policy}")
-        self.clarification_policy = clarification_policy
         self.catalog_path = Path(catalog_path)
         self.index = index or CatalogIndex(
             self.catalog_path,
@@ -358,93 +354,7 @@ class Agent:
             {"parent_asin": hit.parent_asin, "score": hit.score}
             for hit in hits
         ]
-        if self.clarification_policy == "other_first":
-            ask_attribute, message = self._choose_other_first(state, turn)
-            return {
-                "message": message,
-                "ask_attribute": ask_attribute,
-                "recommendations": recommendations,
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-            }
-        if self.buyer_state_mode == "active_v2":
-            ask_attribute = state.propose_question(
-                result.candidate_pool_size,
-                result.confidence,
-                turn,
-                result.question_scores,
-                allow_late_repair=True,
-            )
-        elif (
-            self.buyer_state_mode == "active_repair"
-            and state.buyer_state == "repairing"
-            and turn >= 8
-            and result.confidence < 0.02
-        ):
-            ask_attribute = state.commit_question(
-                state.propose_question(
-                    result.candidate_pool_size,
-                    result.confidence,
-                    turn,
-                    result.question_scores,
-                    allow_late_repair=True,
-                )
-            )
-        else:
-            ask_attribute = state.choose_question(
-                result.candidate_pool_size,
-                result.confidence,
-                turn,
-                result.question_scores,
-            )
-        # Broad browsing queries benefit most from a concrete product feature
-        # on the first follow-up.  The simulator's feature reply is usually
-        # more discriminative than material/color, while buying and override
-        # routes retain their learned question ordering.
-        if (
-            state.route == "browsing"
-            and turn == 1
-            and "feature" not in state.asked
-            and "feature" not in state.declined
-        ):
-            if self.buyer_state_mode != "active_v2":
-                state.asked.append("feature")
-                state.last_asked = "feature"
-            ask_attribute = "feature"
-        elif (
-            state.route == "browsing"
-            and turn == 2
-            and "other" not in state.asked
-            and "other" not in state.declined
-        ):
-            if self.buyer_state_mode != "active_v2":
-                state.asked.append("other")
-                state.last_asked = "other"
-            ask_attribute = "other"
-        elif (
-            state.route == "buying"
-            and turn == 2
-            and self.buyer_state_mode in {"active", "active_repair", "active_v2"}
-            and state.buyer_state == "narrowing"
-            and "other" not in state.asked
-            and "other" not in state.declined
-        ):
-            if self.buyer_state_mode != "active_v2":
-                state.asked.append("other")
-                state.last_asked = "other"
-            ask_attribute = "other"
-        elif (
-            state.route == "buying"
-            and turn == 2
-            and "feature" not in state.asked
-            and "feature" not in state.declined
-        ):
-            if self.buyer_state_mode != "active_v2":
-                state.asked.append("feature")
-                state.last_asked = "feature"
-            ask_attribute = "feature"
-        if self.buyer_state_mode == "active_v2":
-            ask_attribute = state.commit_question(ask_attribute)
-        message = QUESTION_TEXT[ask_attribute] if ask_attribute else "Here are the closest matches I found."
+        ask_attribute, message = self._choose_other_first(state, turn)
         return {
             "message": message,
             "ask_attribute": ask_attribute,
