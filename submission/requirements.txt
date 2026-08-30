@@ -1,0 +1,3 @@
+# No third-party dependencies. Python 3.10+ standard library only
+# (including sqlite3, used as an in-memory lexical index — no external
+# database server or service is required).

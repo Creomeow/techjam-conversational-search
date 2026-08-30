@@ -1,0 +1,51 @@
+Demonstrated multi-turn session — public_0001 (Buying scenario)
+=================================================================
+Target: B09PYB7B6Z
+Intent card (hidden from the agent, shown here for reference):
+  hard_constraints: ['Material:alloy', 'Triple Moon Pentagram Symbol']
+  soft_preferences: [
+    'The Triple Moon represents the Phases of the Moon which are linked to the
+     three aspects of the Goddess and the phases of the Life of Women. The
+     Pentagram representing the holistic r[...]',
+    '♥ a special gift to your wife/mom/girlfriend/daughter/grandmother/best
+     friend/kids on St. Valentine's Day, Easter, Christmas day, Birthday,
+     Anniversary, Independence Day, Labor Day, Th[...]'
+  ]
+
+--- Turn 1 ---
+Customer: "I'm looking for Jewelry Necklaces. A key requirement is: Material:alloy."
+Agent ask_attribute: other
+Agent message: "Anything else I should know to help find the right one?"
+Recommendations (top 5): B0140NWUGE, B072PTLN1L, B07ZKZNMJ5, B07TS5Q2G6, B07S85N55P
+Hit: no
+Diagnostics: route=buying, buyer_state=specifying, confidence=0.0147, pool_size=94
+  slots so far: {material: ['Material:alloy']}
+
+--- Turn 2 ---
+Customer: "For that, what matters is: Triple Moon Pentagram Symbol; The Triple
+           Moon represents the Phases of the Moon which are linked to the
+           three aspects of the Goddess and the phases of the Life of
+           Women. The Pentagram representing the holistic r."
+Agent ask_attribute: other
+Agent message: "What else is important to you here?"
+Recommendations (top 5): B09PYB7B6Z, B0C5J7FCYR, B08F4VQ8JC, B08T9HCM3B, B008OYIY3O
+Hit: YES — target B09PYB7B6Z at rank 1
+Diagnostics: route=buying, buyer_state=narrowing, confidence=0.372, pool_size=80
+  slots: {material: ['Material:alloy'],
+          feature: ['Triple Moon Pentagram Symbol', 'The Triple Moon
+                     represents...Life of Women.The Pentagram
+                     representing the holistic r']}
+
+Session resolved in 2 turns, rank 1.
+
+Note on turn 2: asking "other" (instead of a specific attribute like
+"material" or "style") surfaced *two* previously undisclosed intent-card
+items in a single reply, not just one — this is the front-loaded
+disclosure behavior the clarification policy is designed to exploit, and
+is what let this session close in 2 turns instead of the 3-4 a
+one-attribute-per-turn policy would typically need.
+
+Reproduce with:
+  PYTHONPATH=. python3 scripts/trace_session.py public_0001
+(from the development repo; scripts/ is not part of this submission
+bundle, see README.md for the harness-only reproduction command.)
