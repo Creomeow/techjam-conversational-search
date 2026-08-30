@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Iterable
 
 from starter import clarify, nlu
 from starter.retrieval import RetrievalEngine
@@ -10,9 +11,24 @@ from starter.state import SessionState
 class Agent:
     """Stateful offline shopping agent using NLU, clarification, and tiered retrieval."""
 
-    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl", clarification_policy: str = "other_first") -> None:
+    def __init__(
+        self,
+        catalog_path: str | Path = "data/catalog.jsonl",
+        clarification_policy: str = "other_first",
+        *,
+        confidence_gating: bool = False,
+        confidence_gap: float = 0.18,
+        confidence_gating_turns: Iterable[int] = (1, 2),
+        confidence_gating_modes: Iterable[str] = ("buying",),
+    ) -> None:
         self.catalog_path = Path(catalog_path)
-        self.retrieval = RetrievalEngine(self.catalog_path)
+        self.retrieval = RetrievalEngine(
+            self.catalog_path,
+            confidence_gating=confidence_gating,
+            confidence_gap=confidence_gap,
+            confidence_gating_turns=confidence_gating_turns,
+            confidence_gating_modes=confidence_gating_modes,
+        )
         self.clarification_policy = clarification_policy
         self._sessions: dict[str, SessionState] = {}
 
@@ -82,14 +98,21 @@ class Agent:
             window = pool[:top_k]
         state.pool_offset += top_k
 
-        state.last_candidates = [parent_asin for parent_asin, _, _ in window]
+        recommendations = self.retrieval.recommendation_window(
+            pool,
+            top_k,
+            turn=turn,
+            mode=state.mode,
+            offset=state.pool_offset - top_k,
+        )
+        state.last_candidates = [parent_asin for parent_asin, _, _ in recommendations]
 
         return {
             "message": message,
             "ask_attribute": ask_attribute,
             "recommendations": [
                 {"parent_asin": parent_asin}
-                for parent_asin, _, _ in window
+                for parent_asin, _, _ in recommendations
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }

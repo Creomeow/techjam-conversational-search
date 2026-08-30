@@ -17,7 +17,7 @@ It also under-scopes Monday: `docs/submission_rules.md` and the "Final Deliverab
 
 **Clarification-policy note (added after further review)**: `other_first` remains the default because the simulator's `customer_reply()` reveals undisclosed constraints regardless of classification when asked `"other"` — a strong, simple way to front-load information extraction. This is a deliberate, documented exploit of a specific simulator implementation detail, not a generally "smart" clarification behavior. The implemented `adaptive` policy remains an A/B variant and a hedge in case the private evaluator's simulator differs slightly; switch the default only after scale validation.
 
-## Status: v2 closeout complete; ready for final packaging
+## Status: Sunday v3 experiment complete; default behavior frozen pending scale gate
 
 The pagination fix, rarity weighting, override no-op handling, and adaptive clarification policy are implemented and validated. Results currently available:
 
@@ -37,6 +37,18 @@ The pagination fix, rarity weighting, override no-op handling, and adaptive clar
 - **Completed miss replay**: among 20 Buying misses selected from the pre-fix scale artifact and replayed through the current agent, 10 were candidate-recall failures, 9 were window/pagination failures, and 1 became a rank-6-to-10 hit. No further retrieval change met the evidence gate.
 - **Latency gate complete**: `scripts/benchmark_latency.py` records index construction, one cold response, and warm responses. Current run: index 4.517s; cold response 0.102s; warm responses 0.231s, 0.293s, 0.494s; warm mean 0.339s and observed p95 0.494s. No latency regression was observed in the completed closeout check.
 - **Fri/Sat closeout decision**: keep the current implementation. It preserves public HR@10 1.000 and TechnicalScore 0.872, improves the public score over the prior checkpoint, generalizes to the completed Buying/Intent Override scale run, and has a measured warm-response p95 below 0.5s. Do not start the optional confidence-gating experiment without a new evidence-backed failure mode.
+
+- **Sunday v3 experiment complete**: added an opt-in score-gap gate for Buying turns 1–2, plus public A/B and synthetic-run switches. The complete candidate pool remains available to clarification; only the submitted recommendation window is gated. On the fresh 200-session public A/B, the gated variant improved MRR **0.665978→0.670145** and TechnicalScore **0.871593→0.872443**, held HR@10 at **1.000**, and increased MTTC slightly **2.410→2.430**. Warm p95 remained below 0.5s (**0.431s** gated). The gate remains **disabled by default** pending a fresh large-scale gated run; the validated submission behavior is unchanged.
+
+### Execution progress — 30 Aug 2026
+
+- **Sunday implementation complete**: `starter/retrieval.py` now owns an opt-in score-gap gate, `starter/agent.py` wires it without changing the default constructor behavior, and both synthetic evaluators accept `--confidence-gating` and `--confidence-gap`.
+- **Clarification safety verified**: the gate only changes the submitted recommendation list. `state.last_candidate_pool` remains complete, so `clarify.py` still receives the full `(parent_asin, product, score)` pool for impurity calculations.
+- **Regression coverage complete**: the suite now has **30 passing tests**, including opt-in behavior, turn/mode scoping, paging, and candidate-pool preservation. `compileall` and `git diff --check` also pass.
+- **Public A/B complete**: default vs. gated on all 200 public sessions held HR@10 at **1.000**; MRR improved **0.665978→0.670145** and TechnicalScore **0.871593→0.872443**, while MTTC moved **2.410→2.430**.
+- **Synthetic smoke checks complete**: 40 products per scenario group with gating enabled produced HR@10 **0.975** for Buying/Intent Override and **0.975** for Browsing/Boundary. The gate is restricted to Buying, so the latter scenarios are unaffected by policy logic.
+- **Latency check complete**: default warm p95 was **0.388s** and gated warm p95 was **0.431s** on the 50K catalog; both remain below the 0.5s observed target.
+- **Decision**: keep confidence gating available for further validation but **disabled by default**. The current evidence is a small public gain with a small MTTC tradeoff, and no fresh 30K-session gated artifact exists yet.
 
 ### Diagnostic findings from manual transcript review (`print_transcripts.py` re-run against the live agent)
 
@@ -93,11 +105,20 @@ The implementation work is largely complete. Make validation and reproducibility
 - **Both — COMPLETE**: benchmarked cold-start index construction, first-query latency, warm-query latency, and completed scale validation. The current best version is preserved for packaging.
 - **Decision gate — PASSED**: the retained implementation preserves public HR@10 and TechnicalScore, improves the prior public checkpoint, generalizes to the completed scale run, and has no observed latency or contract regression.
 
-### Sun (v3, optional) — confidence gating only if validation justifies it
+### Sun (v3, optional) — confidence gating only if validation justifies it — ✅ IMPLEMENTED, NOT ADOPTED BY DEFAULT
 
 Before starting v3, complete the latest four-scenario scale run. If Buying's problem is ranking rather than candidate recall, run a small, togglable gating A/B test; otherwise skip it and spend the time on the diagnosed failure mode. This experiment is a fallback, not a required milestone.
 
 **Person B** implements score-gap-based gating on `recommendations` in `retrieval.py` only if replay shows early low-rank submissions are the dominant Buying failure. Test Buying turn-1/turn-2 gating first, then check all other scenarios. **Person A** verifies that gating does not break the candidate-pool heuristic in `clarify.py`. Adopt it only if it improves the fresh scale result and does not regress public HR@10, MRR, or operational latency; otherwise keep the current implementation.
+
+### Suggested improvements for today — prioritized
+
+1. **Run the fresh gated scale validation**: use the existing synthetic scripts with the same seed and catalog, write to new output files, and compare gated vs. default by scenario. Start with a small smoke run, then run the full scale only if the smoke result is clean. Adopt the gate only if Buying improves without regressions in HR@10, MRR, MTTC, latency, or the other scenarios.
+2. **If gating is rejected, spend ranking time on Buying misses**: replay a fresh sample of misses and separate candidate-recall failures from pagination and rank-6-to-10 failures. Prioritize candidate recall because the previous miss review found more recall failures than ranking failures. Require a public-suite and smoke-suite improvement before keeping any retrieval change.
+3. **Finish the submission package**: write the required method/cost/latency/limitations report, capture one clear multi-turn transcript, and verify the requested `agent.py`, `requirements.txt`, `README.md`, and `src/` layout against `docs/submission_rules.md`.
+4. **Freeze and perform the final acceptance run**: execute the 30-test suite, the public evaluator, both latency modes if the gate is still under consideration, and a final working-tree review. Preserve the chosen metrics and commands in the report.
+
+Avoid spending today on exhaustive clarification-order searches or an LLM/network dependency; the current evidence favors reproducible offline retrieval and targeted failure analysis.
 
 ### Mon (buffer) — freeze, package, and submit
 

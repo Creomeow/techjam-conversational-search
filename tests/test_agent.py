@@ -191,6 +191,44 @@ class RetrievalIntegrationTest(unittest.TestCase):
         self.assertIn("title", pool[0][1])
         self.assertIsInstance(pool[0][2], float)
 
+    def test_confidence_gate_is_opt_in_and_uses_top_score_gap(self) -> None:
+        pool = [
+            ("first", {"title": "first"}, 1.00),
+            ("second", {"title": "second"}, 0.95),
+        ]
+        gated = RetrievalEngine(CATALOG, confidence_gating=True, confidence_gap=0.10)
+        self.assertAlmostEqual(gated.score_gap(pool), 0.05)
+        self.assertEqual(gated.recommendation_window(pool, 2, turn=1, mode="buying"), [])
+        self.assertEqual(gated.recommendation_window(pool, 2, turn=2, mode="browsing"), pool)
+        self.assertEqual(gated.recommendation_window(pool, 2, turn=3, mode="buying"), pool)
+        self.assertEqual(gated.recommendation_window(pool, 1, turn=1, mode="buying"), [])
+
+        ungated = RetrievalEngine(CATALOG)
+        self.assertEqual(ungated.recommendation_window(pool, 2, turn=1, mode="buying"), pool)
+
+    def test_confidence_gate_preserves_candidate_pool_for_clarification(self) -> None:
+        gated = RetrievalEngine(CATALOG, confidence_gating=True, confidence_gap=100.0)
+        pool = [
+            ("first", {"title": "black wool hat"}, 1.00),
+            ("second", {"title": "blue wool hat"}, 0.95),
+        ]
+        submitted = gated.recommendation_window(pool, 2, turn=1, mode="buying")
+        self.assertEqual(submitted, [])
+        self.assertEqual(pool[0][0], "first")
+        self.assertEqual(len(pool), 2)
+
+    def test_confidence_gate_can_page_without_gating_later_windows(self) -> None:
+        pool = [
+            ("first", {"title": "first"}, 1.00),
+            ("second", {"title": "second"}, 0.95),
+            ("third", {"title": "third"}, 0.90),
+        ]
+        gated = RetrievalEngine(CATALOG, confidence_gating=True, confidence_gap=0.10)
+        self.assertEqual(
+            gated.recommendation_window(pool, 1, turn=3, mode="buying", offset=1),
+            [pool[1]],
+        )
+
 
 class AgentIntegrationTest(unittest.TestCase):
     @classmethod
@@ -214,6 +252,17 @@ class AgentIntegrationTest(unittest.TestCase):
         self.assertTrue(pool)
         self.assertEqual(len(pool[0]), 3)
         self.assertIsInstance(pool[0][1], dict)
+
+    def test_agent_gate_does_not_hide_pool_from_clarifier(self) -> None:
+        gated_agent = Agent(CATALOG, confidence_gating=True, confidence_gap=100.0)
+        gated_agent.reset("clarifier-pool", {})
+        response = gated_agent.respond(
+            "clarifier-pool", "I'm looking for Women Shoes. red.", 1, 10
+        )
+        state = gated_agent._sessions["clarifier-pool"]
+        self.assertEqual(response["recommendations"], [])
+        self.assertEqual(response["ask_attribute"], "other")
+        self.assertTrue(state.last_candidate_pool)
 
     def test_reused_pool_advances_without_repeating_first_window(self) -> None:
         self.agent.reset("paging", {})

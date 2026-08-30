@@ -66,6 +66,17 @@ def parse_args(default_output: str) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--output", default=default_output)
+    parser.add_argument(
+        "--confidence-gating",
+        action="store_true",
+        help="Enable the opt-in score-gap gate for early Buying recommendations",
+    )
+    parser.add_argument(
+        "--confidence-gap",
+        type=float,
+        default=0.18,
+        help="Minimum top-two score gap required by the confidence gate",
+    )
     return parser.parse_args()
 
 
@@ -114,7 +125,11 @@ def run(scenario_types: tuple[str, ...], default_output: str) -> None:
         f"scenarios: {scenario_types} | total sessions: {total}"
     )
 
-    agent = Agent(args.catalog)
+    agent = Agent(
+        args.catalog,
+        confidence_gating=args.confidence_gating,
+        confidence_gap=args.confidence_gap,
+    )
     output_path = Path(args.output)
     all_sessions: list[dict] = []
     started = time.time()

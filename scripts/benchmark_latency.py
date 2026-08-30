@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import statistics
 import sys
 import time
@@ -14,9 +15,18 @@ from starter.agent import Agent
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Measure offline agent cold and warm latency")
+    parser.add_argument("--confidence-gating", action="store_true")
+    parser.add_argument("--confidence-gap", type=float, default=0.18)
+    args = parser.parse_args()
+
     catalog = Path("data/catalog.jsonl")
     started = time.perf_counter()
-    agent = Agent(catalog)
+    agent = Agent(
+        catalog,
+        confidence_gating=args.confidence_gating,
+        confidence_gap=args.confidence_gap,
+    )
     index_seconds = time.perf_counter() - started
 
     agent.reset("latency", {})
@@ -34,6 +44,8 @@ def main() -> None:
 
     print(json.dumps({
         "catalog": str(catalog),
+        "confidence_gating": args.confidence_gating,
+        "confidence_gap": args.confidence_gap,
         "index_seconds": round(index_seconds, 6),
         "cold_respond_seconds": round(timings[0], 6),
         "warm_respond_seconds": [round(value, 6) for value in timings[1:]],

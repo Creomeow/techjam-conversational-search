@@ -59,8 +59,22 @@ def _expression(query_terms: Sequence[str], operator: str) -> str:
 class RetrievalEngine:
     """Offline tiered FTS candidate generation followed by structured reranking."""
 
-    def __init__(self, catalog_path: str | Path) -> None:
+    def __init__(
+        self,
+        catalog_path: str | Path,
+        *,
+        confidence_gating: bool = False,
+        confidence_gap: float = 0.18,
+        confidence_gating_turns: Iterable[int] = (1, 2),
+        confidence_gating_modes: Iterable[str] = ("buying",),
+    ) -> None:
         self.catalog_path = Path(catalog_path)
+        if not math.isfinite(confidence_gap) or confidence_gap < 0:
+            raise ValueError("confidence_gap must be a finite non-negative number")
+        self.confidence_gating = confidence_gating
+        self.confidence_gap = float(confidence_gap)
+        self.confidence_gating_turns = frozenset(int(turn) for turn in confidence_gating_turns)
+        self.confidence_gating_modes = frozenset(str(mode) for mode in confidence_gating_modes)
         self.connection = sqlite3.connect(":memory:")
         self._df_cache: dict[str, int] = {}
         self._total_products = 0
@@ -268,6 +282,44 @@ class RetrievalEngine:
 
         scored.sort(key=lambda item: (-item[2], item[0]))
         return scored[:max(top_k, candidate_limit)]
+
+    @staticmethod
+    def score_gap(candidate_pool: CandidatePool) -> float | None:
+        """Return the margin between the two best candidates, if it is measurable."""
+        if len(candidate_pool) < 2:
+            return None
+        return max(0.0, float(candidate_pool[0][2]) - float(candidate_pool[1][2]))
+
+    def recommendation_window(
+        self,
+        candidate_pool: CandidatePool,
+        top_k: int,
+        *,
+        turn: int,
+        mode: str | None,
+        offset: int = 0,
+    ) -> CandidatePool:
+        """Apply the optional Sunday confidence gate to submitted recommendations.
+
+        The complete pool is still returned by :meth:`search` and remains available to
+        clarification.  The gate only suppresses an early recommendation window when
+        the best score is not sufficiently separated from the runner-up.  It is
+        deliberately opt-in because withholding recommendations can reduce recall.
+        """
+        safe_offset = max(0, offset)
+        window = candidate_pool[safe_offset : safe_offset + max(0, top_k)]
+        if not self.confidence_gating:
+            return window
+        if (
+            safe_offset != 0
+            or turn not in self.confidence_gating_turns
+            or mode not in self.confidence_gating_modes
+        ):
+            return window
+        gap = self.score_gap(candidate_pool)
+        if gap is None or gap < self.confidence_gap:
+            return []
+        return window
 
     @staticmethod
     def _budget(values: Sequence[str]) -> float | None:
